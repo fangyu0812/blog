@@ -12,10 +12,6 @@ on:
     paths:
       - main.py
 
-env:
-  GITHUB_NAME: fangyu0812
-  GITHUB_EMAIL: fangyu_ysyx@163.com  
-
 jobs:
   sync:
     name: Generate README
