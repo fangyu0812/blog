@@ -6,6 +6,7 @@
 参考bilibili up： 
 https://www.bilibili.com/video/BV1S4411m7kf/?spm_id_from=333.337.search-card.all.click
 
+<img width="2820" height="1548" alt="Image" src="https://github.com/user-attachments/assets/6d0709a4-c423-4a41-b1b9-9b48785d1755" />
 
 
 用issue写的好处：
