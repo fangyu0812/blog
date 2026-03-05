@@ -116,18 +116,30 @@ module ahb_master_lite_single #(
     logic              done_this_beat;
     logic              cmd_available;
     logic              cmd_take;
+    logic              slot_open;
+    logic              prefetch_same_burst;
+    logic              prefetch_back2back;
+    logic              prefetch_from_idle;
 
-    assign beat_bytes      = {{(ADDR_W-1){1'b0}}, 1'b1} << size_q;
+    assign beat_bytes       = {{(ADDR_W-1){1'b0}}, 1'b1} << size_q;
     assign write_data_avail = ~wdata_fifo_empty;
-    assign transfer_valid  = active & ((~write_q) | write_data_avail);
-    assign transfer_fire   = transfer_valid & HREADY;
-    assign done_this_beat  = transfer_fire & (beats_left_q == 5'd1);
+    assign transfer_valid   = active & ((~write_q) | write_data_avail);
+    assign transfer_fire    = transfer_valid & HREADY;
+    assign done_this_beat   = transfer_fire & (beats_left_q == 5'd1);
 
     assign cmd_available = ~cmd_fifo_empty;
-    assign cmd_take = ((~active) | done_this_beat) & cmd_available & ((~cmd_write) | write_data_avail);
-    assign cmd_fifo_rd = cmd_take;
+    assign slot_open     = (~active) | done_this_beat;
+    assign cmd_take      = slot_open & cmd_available & ((~cmd_write) | write_data_avail);
+    assign cmd_fifo_rd   = cmd_take;
 
-    assign wdata_fifo_rd = active & write_q & transfer_fire;
+    // prefetch write data for:
+    // 1) next beat of current write burst,
+    // 2) back-to-back next write command when current beat is the last one,
+    // 3) first write command taken from idle.
+    assign prefetch_same_burst = active & write_q & transfer_fire & (beats_left_q > 5'd1);
+    assign prefetch_back2back  = active & write_q & done_this_beat & cmd_take & cmd_write;
+    assign prefetch_from_idle  = (~active) & cmd_take & cmd_write;
+    assign wdata_fifo_rd       = prefetch_same_burst | prefetch_back2back | prefetch_from_idle;
 
     assign HADDR      = addr_q;
     assign HTRANS     = transfer_valid ? (first_q ? HTRANS_NONSEQ : HTRANS_SEQ) : HTRANS_IDLE;
@@ -170,7 +182,23 @@ module ahb_master_lite_single #(
                 dphase_read_pending_q <= transfer_fire & (~write_q);
             end
 
-            if ((~active) || done_this_beat) begin
+            if (wdata_fifo_rd) begin
+                wdata_pipe_q <= wdata_fifo_data;
+            end
+
+            if (active && transfer_fire && (beats_left_q > 5'd1)) begin
+                first_q      <= 1'b0;
+                beats_left_q <= beats_left_q - 5'd1;
+
+                if (is_wrap_burst(burst_q)) begin
+                    addr_off = (addr_q - wrap_base_q) + beat_bytes;
+                    addr_q   <= wrap_base_q | (addr_off & wrap_mask_q);
+                end else begin
+                    addr_q <= addr_q + beat_bytes;
+                end
+            end
+
+            if (slot_open) begin
                 if (cmd_take) begin
                     n_beats = burst_beats(cmd_burst, cmd_len);
 
@@ -188,20 +216,6 @@ module ahb_master_lite_single #(
                     wrap_mask_q  <= n_wrap_bytes - 1'b1;
                 end else begin
                     active <= 1'b0;
-                end
-            end else if (transfer_fire) begin
-                first_q      <= 1'b0;
-                beats_left_q <= beats_left_q - 5'd1;
-
-                if (write_q) begin
-                    wdata_pipe_q <= wdata_fifo_data;
-                end
-
-                if (is_wrap_burst(burst_q)) begin
-                    addr_off = (addr_q - wrap_base_q) + beat_bytes;
-                    addr_q   <= wrap_base_q | (addr_off & wrap_mask_q);
-                end else begin
-                    addr_q <= addr_q + beat_bytes;
                 end
             end
         end
